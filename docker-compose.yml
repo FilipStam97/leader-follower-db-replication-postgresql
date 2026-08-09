@@ -1,0 +1,97 @@
+version: '3.8'
+
+services:
+  postgres-primary:
+    container_name: postgres-primary
+    image: postgres:18
+    hostname: postgres-primary
+
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: admin123
+      POSTGRES_DB: bank
+      PGDATA: /data/postgres
+
+    volumes:
+      - primary-db:/data/postgres
+      - ./sql:/sql
+      - ./primary/init-primary.sh:/docker-entrypoint-initdb.d/init-primary.sh:ro
+
+    ports:
+      - "5332:5432"
+
+    networks:
+      - mynet
+
+    restart: unless-stopped
+
+    command:
+      - postgres
+      - -c
+      - listen_addresses=*
+      - -c
+      - wal_level=replica
+      - -c
+      - max_wal_senders=10
+      - -c
+      - max_replication_slots=10
+      - -c
+      - wal_keep_size=256MB
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d bank"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  postgres-replica:
+    container_name: postgres-replica
+    image: postgres:18
+    hostname: postgres-replica
+
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: admin123
+      POSTGRES_DB: bank
+      PGDATA: /data/postgres
+
+      PRIMARY_HOST: postgres-primary
+      PRIMARY_PORT: 5432
+      REPLICATION_USER: replicator
+      REPLICATION_PASSWORD: replicator123
+
+    volumes:
+      - replica-db:/data/postgres
+      - ./sql:/sql
+      - ./replica/start-replica.sh:/usr/local/bin/start-replica.sh:ro
+
+    ports:
+      - "5333:5432"
+
+    networks:
+      - mynet
+
+    restart: unless-stopped
+
+    depends_on:
+      postgres-primary:
+        condition: service_healthy
+
+    entrypoint:
+      - /bin/bash
+      - /usr/local/bin/start-replica.sh
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d bank"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  primary-db:
+  replica-db:
+
+networks:
+  mynet:
+    driver: bridge
+
